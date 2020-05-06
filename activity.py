@@ -27,7 +27,8 @@ g_offline_mode = False # use only cached data
 
 g_cached_solar_systems = []
 g_cached_killmails = []
-g_cached_characters = []
+g_cached_pilots_stat = []
+g_cached_systems_stat = []
 g_characters = []
 g_sde_uniq_names_1 = []
 g_sde_uniq_names_2 = []
@@ -58,8 +59,16 @@ def getSolarSystemId(nm):
     sys.stdout.flush()
     raise ValueError(nm)
 
-def pushSolarSystemKillmail(id, datetime_str, attackers, victim, solar_system_id, location_id):
-    g_cached_killmails.append({"id":int(id),"time":getTimestamp(datetime_str),"attackers":attackers, "victim":victim, "system":int(solar_system_id),"location":int(location_id)})
+def pushSolarSystemKillmail(id, datetime_str, attackers, victim, solar_system_id, location_id, npc):
+    g_cached_killmails.append({
+        "id":int(id),
+        "time":getTimestamp(datetime_str),
+        "attackers":attackers,
+        "victim":victim,
+        "system":int(solar_system_id),
+        "location":int(location_id),
+        "npc":npc
+    })
 
 # type=0 : https://esi.evetech.net/
 # type=1 : https://zkillboard.com/
@@ -269,7 +278,6 @@ sys.stdout.flush()
 
 
 # ------------------------------------------------------------------------------------------------
-g_start_date = "2020-04-01T00:00:00Z"
 now_ts = int(time.time())
 now_year = date.today().year
 now_month = date.today().month
@@ -320,6 +328,7 @@ for system_name in g_solar_systems:
                         location_id = zkill["zkb"]["locationID"]
                     if not 'attackers' in killmail and not 'victim' in killmail:
                         break # offline mode? and there are no data? (skip)
+                    npc = True if zkill["zkb"]["npc"] else False
                     attackers = []
                     victim = []
                     if 'attackers' in killmail:
@@ -330,7 +339,7 @@ for system_name in g_solar_systems:
                         v = killmail["victim"]
                         if 'character_id' in v:
                             victim.append(int(v["character_id"]))
-                    pushSolarSystemKillmail(id, killmail["killmail_time"], attackers, victim, killmail["solar_system_id"], location_id)
+                    pushSolarSystemKillmail(id, killmail["killmail_time"], attackers, victim, killmail["solar_system_id"], location_id, npc)
                 if len(zkillmails)<200:
                     break
                 else:
@@ -346,32 +355,52 @@ for system_name in g_solar_systems:
 print('Analysis of killmails log...')
 sys.stdout.flush()
 
+def pushSolarSystemAnalytics(system_id, location_id):
+    found_sys = False
+    for s in g_cached_systems_stat:
+        if s["system"] == int(system_id):
+            found_loc = False
+            for l in s["locations"]:
+                if l["id"] == int(location_id):
+                    l["cnt"] = l["cnt"] + 1
+                    found_loc = True
+                    break
+            if not found_loc:
+                s["locations"].append({"id":int(location_id),"cnt":1})
+            s["cnt"] = s["cnt"] + 1
+            found_sys = True
+            break
+    if not found_sys:
+        g_cached_systems_stat.append({"system":int(system_id),"cnt":1,"locations":[{"id":int(location_id),"cnt":1}]})
+
 first_time_characters = Set()
-# type_id: 1 - attacker, 2 - victim
-def pushPilotAnalitics(pilot_id, system_id, location_id, type_id):
+# type_id: 1 - attacker, 2 - victim, 3 - npc
+def pushPilotAnalytics(pilot_id, system_id, location_id, type_id):
     if not pilot_id in first_time_characters:
         first_time_characters.add(pilot_id)
-        g_cached_characters.append({"id":int(pilot_id),"cnt":0,"where":[]})
-    pilot = [item for item in g_cached_characters if item["id"] == int(pilot_id)]
+        g_cached_pilots_stat.append({"id":int(pilot_id),"cnt":0,"where":[]})
+    pilot = [item for item in g_cached_pilots_stat if item["id"] == int(pilot_id)]
     pilot[0]["cnt"] = pilot[0]["cnt"] + 1
+    num_attacker = 1 if 1 == type_id else 0
+    num_victim = 1 if 2 == type_id else 0
+    num_npc = 1 if 3 == type_id else 0
     found_sys = False
     for s in pilot[0]["where"]:
         if s["system"] == int(system_id):
             found_loc = False
             for l in s["locations"]:
                 if l["id"] == int(location_id):
-                    if 1 == type_id:
-                        l["attacker"] = l["attacker"] + 1
-                    if 2 == type_id:
-                        l["victim"] = l["victim"] + 1
+                    l["attacker"] = l["attacker"] + num_attacker
+                    l["victim"] = l["victim"] + num_victim
+                    l["npc"] = l["npc"] + num_npc
                     found_loc = True
                     break
             if not found_loc:
-                s["locations"].append({"id":int(location_id),"attacker":1 if type_id == 1 else 0,"victim":1 if type_id == 2 else 0})
+                s["locations"].append({"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc})
             found_sys = True
             break
     if not found_sys:
-        pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"attacker":1 if type_id == 1 else 0,"victim":1 if type_id == 2 else 0}]})
+        pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc}]})
 
 g_cached_killmails.sort(key=lambda x: x["time"])
 for k in g_cached_killmails:
@@ -379,24 +408,34 @@ for k in g_cached_killmails:
     id = int(k["id"])
     system_id = int(k["system"])
     location_id = int(k["location"])
+    npc = k["npc"]
     for pilot_id in k["attackers"]:
-        pushPilotAnalitics(pilot_id, system_id, location_id, 1)
+        pushPilotAnalytics(pilot_id, system_id, location_id, 1)
     for pilot_id in k["victim"]:
-        pushPilotAnalitics(pilot_id, system_id, location_id, 2)
+        pushPilotAnalytics(pilot_id, system_id, location_id, 2 if not npc else 3)
+    if not npc:
+        pushSolarSystemAnalytics(system_id, location_id)
 
-g_cached_characters.sort(key=lambda x: x["cnt"], reverse=True)
-for pilot in g_cached_characters:
+g_cached_systems_stat.sort(key=lambda x: x["cnt"], reverse=True)
+for s in g_cached_systems_stat:
+    s["locations"].sort(key=lambda x: x["cnt"], reverse=True)
+g_cached_pilots_stat.sort(key=lambda x: x["cnt"], reverse=True)
+for pilot in g_cached_pilots_stat:
     for where in pilot["where"]:
-        where["locations"].sort(key=lambda x: x["attacker"]+x["victim"], reverse=True)
+        where["locations"].sort(key=lambda x: x["attacker"]+x["victim"]+x["npc"], reverse=True)
 
 if g_debug:
-    gckw = open('{tmp}/killmails.json'.format(tmp=g_tmp_directory), "wt+")
-    gckw.write(json.dumps(g_cached_killmails, indent=1, sort_keys=False))
-    gckw.close()
+    gckmw = open('{tmp}/killmails.json'.format(tmp=g_tmp_directory), "wt+")
+    gckmw.write(json.dumps(g_cached_killmails, indent=1, sort_keys=False))
+    gckmw.close()
     
-    gccw = open('{tmp}/pilots.json'.format(tmp=g_tmp_directory), "wt+")
-    gccw.write(json.dumps(g_cached_characters, indent=1, sort_keys=False))
-    gccw.close()
+    gcssw = open('{tmp}/systems.json'.format(tmp=g_tmp_directory), "wt+")
+    gcssw.write(json.dumps(g_cached_systems_stat, indent=1, sort_keys=False))
+    gcssw.close()
+    
+    gcpsw = open('{tmp}/pilots.json'.format(tmp=g_tmp_directory), "wt+")
+    gcpsw.write(json.dumps(g_cached_pilots_stat, indent=1, sort_keys=False))
+    gcpsw.close()
 # ------------------------------------------------------------------------------------------------
 
 
@@ -414,12 +453,29 @@ glf.write('table { border-collapse: collapse; border: none; }\n')
 glf.write('th,td { border: 1px solid gray; text-align: left; vertical-align: top; }\n')
 glf.write('td.attacks { text-align: right; color: green; }\n')
 glf.write('td.victims { text-align: right; color: maroon; }\n')
+glf.write('td.npc { text-align: right; color: #9933cc; }\n')
 glf.write('</style></head><body>\n')
-for pilot in g_cached_characters:
+# Most dangerous locations
+glf.write('<h2>Most PvP-dangerous locations in region</h2>\n')
+glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
+for s in g_cached_systems_stat:
+    glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(s["system"]),num=len(s["locations"])))
+    first = True
+    for loc in s["locations"]:
+        if first:
+            first = False
+        else:
+            glf.write('<tr>')
+        glf.write('<td>{location}</td><td>{kills}</td></tr>\n'.format(location=getLocationName(loc["id"]),kills=loc["cnt"]))
+glf.write('<table>\n')
+# Pilots stat
+glf.write('<h2>Pilots activity</h2>\n')
+for pilot in g_cached_pilots_stat:
     glf.write('<h3>{name}</h3>\n'.format(name=getCharacterName(pilot["id"])))
-    glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Attacks</th><th>Victims</th></tr>\n')
+    glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Attacks</th><th>Victims</th><th>NPC</th></tr>\n')
     a_all = 0
     v_all = 0
+    n_all = 0
     for where in pilot["where"]:
         glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(where["system"]),num=len(where["locations"])))
         first = True
@@ -429,12 +485,16 @@ for pilot in g_cached_characters:
             else:
                 glf.write('<tr>')
             a = loc["attacker"]
-            v = victim=loc["victim"]
+            v = loc["victim"]
+            n = loc["npc"]
             a_all = a_all + a
             v_all = v_all + v
-            glf.write('<td>{location}</td><td class=attacks>{attacker}</td><td class=victims>{victim}</td></tr>\n'.format(location=getLocationName(loc["id"]),attacker=a if a>0 else "&nbsp;",victim=v if v>0 else "&nbsp;"))
-    glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td></tr><table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;"))
-glf.write('<p>Generated {dt} with help of https://github.com/Qandra-Si/show_activity</p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
+            n_all = n_all + n
+            glf.write('<td>{location}</td><td class=attacks>{attacker}</td><td class=victims>{victim}</td><td class=npc>{npc}</td></tr>\n'.format(location=getLocationName(loc["id"]),attacker=a if a>0 else "&nbsp;",victim=v if v>0 else "&nbsp;",npc=n if n>0 else "&nbsp;"))
+    glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td><td class=npc>{n}</td></tr><table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;",n=n_all if n_all>0 else "&nbsp;"))
+# Don't remove line below !
+glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
+# Don't remove line above !
 glf.write('</body></html>\n')
 glf.close()
 # ------------------------------------------------------------------------------------------------

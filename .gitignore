@@ -12,6 +12,7 @@
 /unique_names_cache*.json
 /pilots.json
 /killmails.json
+/systems.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
