@@ -22,7 +22,7 @@ g_local_timezone = tzlocal.get_localzone()
 
 # Local settings
 g_debug = True # show additional information (debug mode)
-g_offline_mode = True # use only cached data
+g_offline_mode = False # use only cached data
 
 
 g_cached_solar_systems = []
