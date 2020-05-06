@@ -1,0 +1,9 @@
+#
+# copy this file to the activity_settings.py file and edit a copy of this file
+#
+
+g_eveserver = 'tranquility' # eveonline' server
+#please specify:g_maintainer = 'Your Name your@email.com' # for example : Qandra Si qandra.si@gmail.com
+#please specify:g_user_agent = 'http://your-server(dot)com/ Maintainer: {maintainer}'.format(maintainer=g_maintainer) 
+#please specify:g_tmp_directory = '/full/path/to/generated/files' # for example : /tmp
+#please specify:g_solar_systems = [?] # for example : ['Y-W6GF','5KS-AB','KLYN-8','5-VKCN','3MOG-V']
