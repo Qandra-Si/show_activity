@@ -12,29 +12,26 @@ from datetime import datetime
 import yaml # pip install pyyaml
 from sets import Set
 import sys
+import tzlocal  # pip install tzlocal
 
 # Global settings
 execfile("{cwd}/activity_settings.py".format(cwd=os.path.dirname(os.path.abspath(__file__))))
 g_debug = True # show additional information (debug mode)
 g_utc_offset = (datetime.fromtimestamp(1288483950000*1e-3) - datetime.utcfromtimestamp(1288483950000*1e-3)).total_seconds() # don't need tzlocal
+g_local_timezone = tzlocal.get_localzone()
 
 # Local settings
 g_debug = True # show additional information (debug mode)
 g_offline_mode = True # use only cached data
 
 
-# g_events = []
 g_cached_solar_systems = []
 g_cached_killmails = []
 g_cached_characters = []
 g_characters = []
-# #g_prev_get_json_type = int(0)
 g_sde_uniq_names_1 = []
 g_sde_uniq_names_2 = []
 
-
-# def getDateStr(datetime_str):
-#     return datetime_str[:10]
 
 def getTimestamp(datetime_str):
     dt = datetime.strptime(datetime_str,'%Y-%m-%dT%H:%M:%SZ')
@@ -61,8 +58,8 @@ def getSolarSystemId(nm):
     sys.stdout.flush()
     raise ValueError(nm)
 
-def pushSolarSystemKillmail(id, datetime_str, characters, solar_system_id, location_id):
-    g_cached_killmails.append({"id":int(id),"time":getTimestamp(datetime_str),"who":characters, "system":int(solar_system_id),"location":int(location_id)})
+def pushSolarSystemKillmail(id, datetime_str, attackers, victim, solar_system_id, location_id):
+    g_cached_killmails.append({"id":int(id),"time":getTimestamp(datetime_str),"attackers":attackers, "victim":victim, "system":int(solar_system_id),"location":int(location_id)})
 
 # type=0 : https://esi.evetech.net/
 # type=1 : https://zkillboard.com/
@@ -230,21 +227,6 @@ if os.path.isfile(sscnm):
     sscr.close()
 
 else:
-    #print('  loading solar systems from Abyssal Depth...')
-    #sys.stdout.flush()
-    #sde_universe_path = '{tmp}/2/sde/fsd/universe/abyssal'.format(tmp=g_tmp_directory)
-    #for path, dirs, files in os.walk(sde_universe_path):
-    #    for f in files:
-    #        #if g_debug:
-    #        #    print('{}/{}'.format(path,f))
-    #        suburl = path.replace('{tmp}/2/'.format(tmp=g_tmp_directory),'')
-    #        solar_system = getYaml(2,'{}/{}'.format(suburl,f))
-    #        if 'solarSystemID' in solar_system:
-    #            id = int(solar_system["solarSystemID"])
-    #            nm = getLocationName(id)
-    #            #print('{} = {}'.format(nm,id))
-    #            pushSolarSystem(id,nm)
-    #
     print('  loading solar systems from Wormholes...')
     sys.stdout.flush()
     sde_universe_path = '{tmp}/2/sde/fsd/universe/wormhole'.format(tmp=g_tmp_directory)
@@ -338,16 +320,17 @@ for system_name in g_solar_systems:
                         location_id = zkill["zkb"]["locationID"]
                     if not 'attackers' in killmail and not 'victim' in killmail:
                         break # offline mode? and there are no data? (skip)
-                    characters = []
+                    attackers = []
+                    victim = []
                     if 'attackers' in killmail:
                         for a in killmail["attackers"]:
                             if 'character_id' in a:
-                                characters.append(int(a["character_id"]))
+                                attackers.append(int(a["character_id"]))
                     if 'victim' in killmail:
                         v = killmail["victim"]
                         if 'character_id' in v:
-                            characters.append(int(v["character_id"]))
-                    pushSolarSystemKillmail(id, killmail["killmail_time"], characters, killmail["solar_system_id"], location_id)
+                            victim.append(int(v["character_id"]))
+                    pushSolarSystemKillmail(id, killmail["killmail_time"], attackers, victim, killmail["solar_system_id"], location_id)
                 if len(zkillmails)<200:
                     break
                 else:
@@ -363,102 +346,48 @@ for system_name in g_solar_systems:
 print('Analysis of killmails log...')
 sys.stdout.flush()
 
-# first_time_locations = []
 first_time_characters = Set()
-# time_to_erase_systems = []
+# type_id: 1 - attacker, 2 - victim
+def pushPilotAnalitics(pilot_id, system_id, location_id, type_id):
+    if not pilot_id in first_time_characters:
+        first_time_characters.add(pilot_id)
+        g_cached_characters.append({"id":int(pilot_id),"cnt":0,"where":[]})
+    pilot = [item for item in g_cached_characters if item["id"] == int(pilot_id)]
+    pilot[0]["cnt"] = pilot[0]["cnt"] + 1
+    found_sys = False
+    for s in pilot[0]["where"]:
+        if s["system"] == int(system_id):
+            found_loc = False
+            for l in s["locations"]:
+                if l["id"] == int(location_id):
+                    if 1 == type_id:
+                        l["attacker"] = l["attacker"] + 1
+                    if 2 == type_id:
+                        l["victim"] = l["victim"] + 1
+                    found_loc = True
+                    break
+            if not found_loc:
+                s["locations"].append({"id":int(location_id),"attacker":1 if type_id == 1 else 0,"victim":1 if type_id == 2 else 0})
+            found_sys = True
+            break
+    if not found_sys:
+        pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"attacker":1 if type_id == 1 else 0,"victim":1 if type_id == 2 else 0}]})
+
 g_cached_killmails.sort(key=lambda x: x["time"])
-#print(g_cached_killmails)
-#glf = open('{tmp}/tmp.log'.format(tmp=g_tmp_directory), "wt+")
 for k in g_cached_killmails:
     unix_timestamp = float(k["time"])
     id = int(k["id"])
     system_id = int(k["system"])
     location_id = int(k["location"])
-    # system_name = getSolarSystemName(system_id)
-    for c in k["who"]:
-        if not c in first_time_characters:
-            first_time_characters.add(c)
-            g_cached_characters.append({"id":int(c),"cnt":0,"where":[]})
-            continue
-        pilot = [item for item in g_cached_characters if item["id"] == int(c)]
-        pilot[0]["cnt"] = pilot[0]["cnt"] + 1
-        found_sys = False
-        for s in pilot[0]["where"]:
-            if s["system"] == int(system_id):
-                found_loc = False
-                for l in s["locations"]:
-                    if l["id"] == int(location_id):
-                        l["cnt"] = l["cnt"] + 1
-                        found_loc = True
-                        break
-                if not found_loc:
-                    s["locations"].append({"id":int(location_id),"cnt":1})
-                found_sys = True
-                break
-        if not found_sys:
-            pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"cnt":1}]})
-#         glf.write('\n------------------------------------------------------------------------\nr{:08x} | '.format(id))
-#         glf.write('{name} | '.format(name=getCharacterName(c)))
-#         glf.write(datetime.fromtimestamp(unix_timestamp, g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)'))
-#         glf.write(' | x lines\nChanged paths:\n')
-#         sysloc0 = {"sys":int(system_id),"loc":0}
-#         sysloc = {"sys":int(system_id),"loc":int(location_id)}
-#         found = False
-#         for sl in first_time_locations:
-#             if sl["sys"] == system_id and sl["loc"] == location_id:
-#                 found = True
-#                 break;
-#         if not found:
-#             glf.write('A')
-#             if location_id>0:
-#                 first_time_locations.append(sysloc)
-#                 time_to_erase_systems.append({"sysloc":sysloc,"time":int(unix_timestamp)})
-#             first_time_locations.append(sysloc)
-#             time_to_erase_systems.append({"sysloc":sysloc0,"time":int(unix_timestamp)})
-#         else:
-#             glf.write('M')
-#             for ttes in time_to_erase_systems:
-#                 if ttes["sysloc"]["sys"] == system_id and ttes["sysloc"]["loc"] == 0:
-#                     ttes["time"] = int(unix_timestamp)
-#             if location_id>0:
-#                 for ttes in time_to_erase_systems:
-#                     if ttes["sysloc"]["sys"] == system_id and ttes["sysloc"]["loc"] == location_id:
-#                         ttes["time"] = int(unix_timestamp)
-#         glf.write('\t{system}'.format(system=system_name))
-#         if location_id > 0:
-#             glf.write('/{loc}'.format(loc=getLocationName(location_id)))
-#         glf.write('\n')
-#         
-#         repeat = True
-#         while repeat:
-#             repeat = False
-#             idxttes = 0
-#             for ttes in time_to_erase_systems:
-#                 if (ttes["time"]+(3*24*60*60)) < unix_timestamp:
-#                     sid = int(ttes["sysloc"]["sys"])
-#                     lid = int(ttes["sysloc"]["loc"])
-#                     sl = {"sys":int(sid),"loc":int(lid)}
-#                     glf.write('D\t{system}'.format(system=getSolarSystemName(sid)))
-#                     if lid > 0:
-#                         glf.write('/{loc}'.format(loc=getLocationName(lid)))
-#                     glf.write('\n')
-#                     idxftl = 0
-#                     for ftl in first_time_locations:
-#                         if ftl["sys"] == sid and ftl["loc"] == lid:
-#                             del first_time_locations[idxftl]
-#                             break;
-#                         idxftl = idxftl + 1
-#                     del time_to_erase_systems[idxttes]
-#                     repeat = True
-#                     break
-#                 idxttes = idxttes + 1
-#         glf.write('\n')
-# glf.close()
+    for pilot_id in k["attackers"]:
+        pushPilotAnalitics(pilot_id, system_id, location_id, 1)
+    for pilot_id in k["victim"]:
+        pushPilotAnalitics(pilot_id, system_id, location_id, 2)
 
 g_cached_characters.sort(key=lambda x: x["cnt"], reverse=True)
 for pilot in g_cached_characters:
     for where in pilot["where"]:
-        where["locations"].sort(key=lambda x: x["cnt"], reverse=True)
+        where["locations"].sort(key=lambda x: x["attacker"]+x["victim"], reverse=True)
 
 if g_debug:
     gckw = open('{tmp}/killmails.json'.format(tmp=g_tmp_directory), "wt+")
@@ -477,20 +406,20 @@ if g_debug:
 print('Building report...')
 sys.stdout.flush()
 
-# <h3>Babaika Zloy</h3> found 86 times
-# <table>
-# <tr><td rowspan=2>Nalnifan</td><td>50011674 found 7 times</td></tr>
-# <tr><td>50011677 found 2 times</td></tr>
-# </table>
-
 glf = open('{tmp}/report.html'.format(tmp=g_tmp_directory), "wt+")
 glf.write('<html><head><style>\n')
+glf.write('body { margin: 0; padding: 0; background-color: #101010; overflow-y: hidden; }\n')
+glf.write('body, html { min-height: 100vh; overflow-x: hidden; box-sizing: border-box; line-height: 1.5; color: #fff; font-family: Shentox,Rogan,sans-serif; }\n')
 glf.write('table { border-collapse: collapse; border: none; }\n')
-glf.write('th,td { border: 1px solid black; text-align: left; vertical-align: top; }\n')
+glf.write('th,td { border: 1px solid gray; text-align: left; vertical-align: top; }\n')
+glf.write('td.attacks { text-align: right; color: green; }\n')
+glf.write('td.victims { text-align: right; color: maroon; }\n')
 glf.write('</style></head><body>\n')
 for pilot in g_cached_characters:
     glf.write('<h3>{name}</h3>\n'.format(name=getCharacterName(pilot["id"])))
-    glf.write('<table><tr><th>Solar System</th><th>Location</th><th>{num}</th></tr>\n'.format(num=pilot["cnt"]))
+    glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Attacks</th><th>Victims</th></tr>\n')
+    a_all = 0
+    v_all = 0
     for where in pilot["where"]:
         glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(where["system"]),num=len(where["locations"])))
         first = True
@@ -499,36 +428,13 @@ for pilot in g_cached_characters:
                 first = False
             else:
                 glf.write('<tr>')
-            glf.write('<td>{location}</td><td>{num}</td></tr>\n'.format(location=getLocationName(loc["id"]),num=loc["cnt"]))
-    glf.write('<table>\n')
+            a = loc["attacker"]
+            v = victim=loc["victim"]
+            a_all = a_all + a
+            v_all = v_all + v
+            glf.write('<td>{location}</td><td class=attacks>{attacker}</td><td class=victims>{victim}</td></tr>\n'.format(location=getLocationName(loc["id"]),attacker=a if a>0 else "&nbsp;",victim=v if v>0 else "&nbsp;"))
+    glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td></tr><table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;"))
+glf.write('<p>Generated {dt} with help of https://github.com/Qandra-Si/show_activity</p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
 glf.write('</body></html>\n')
 glf.close()
 # ------------------------------------------------------------------------------------------------
-
-
-
-
-
-# print('Building scenario...')
-# sys.stdout.flush()
-# g_events.sort(key=lambda x: x[0])
-# last_event_time = g_events[0][0]
-# last_event_txt = g_events[0][1]
-# stws = open('{tmp}/stw-scenario.txt'.format(tmp=g_tmp_directory), "wt+")
-# for e in g_events:
-#     if  (last_event_time+(3*24*60*60)) > e[0]:
-#         last_event_txt = '{} {}'.format(last_event_txt,e[2])
-#     else:
-#         stws.write('\n{}'.format(last_event_txt))
-#         last_event_time = e[0]
-#         last_event_txt = '{date} {txt}'.format(date=e[1],txt=e[2])
-# stws.write('\n{}'.format(last_event_txt))
-# stws.close()
-# 
-# 
-# #print(g_events)
-# #stws = open('{tmp}/stw-scenario.txt'.format(tmp=g_tmp_directory), "wt+")
-# #for e in g_events:
-# #    stws.write('\n{date} {txt}'.format(date=e[1],txt=e[2]))
-# #stws.close()
-# 

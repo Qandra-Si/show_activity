@@ -1,16 +1,17 @@
 # This repository features
-/report.html
-/pilots.json
-/killmails.json
+/*.html
 /sde.zip
 /sde-TRANQUILITY.zip
 /sde-*-TRANQUILITY.zip
 /activity_settings.py
+/activity_settings.*.py
 /0
 /1
 /2
 /solar_systems_cache.json
 /unique_names_cache*.json
+/pilots.json
+/killmails.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
