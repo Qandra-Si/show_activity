@@ -30,6 +30,7 @@ g_cached_solar_systems = []
 g_cached_killmails = []
 g_cached_pilots_stat = []
 g_cached_systems_stat = []
+g_cached_alliance_corporations = []
 g_characters = []
 g_sde_uniq_names_1 = []
 g_sde_uniq_names_2 = []
@@ -167,6 +168,14 @@ def loadCharacter(id):
         "corporation_id":int(corporation_id),"corporation_name":corporation_name,"corporation_ticker":corporation_ticker,
         "alliance_id":alliance_id,"alliance_name":alliance_name,"alliance_ticker":alliance_ticker
     })
+    if 'alliance_id' in who:
+        found = False
+        for c in g_cached_alliance_corporations:
+            if corporation_id == c["id"]:
+                found = True
+                break
+        if not found:
+            g_cached_alliance_corporations.append({"id":corporation_id,"alliance_id":alliance_id})
 
 def getCharacter(id):
     for c in g_characters:
@@ -354,10 +363,12 @@ for system_name in g_solar_systems:
                         for a in killmail["attackers"]:
                             if 'character_id' in a:
                                 attackers.append(int(a["character_id"]))
+                                loadCharacter(int(a["character_id"]))
                     if 'victim' in killmail:
                         v = killmail["victim"]
                         if 'character_id' in v:
                             victim.append(int(v["character_id"]))
+                            loadCharacter(int(v["character_id"]))
                     pushSolarSystemKillmail(id, killmail["killmail_time"], attackers, victim, killmail["solar_system_id"], location_id, npc)
                 if len(zkillmails)<200:
                     break
@@ -374,10 +385,40 @@ for system_name in g_solar_systems:
 print('Analysis of killmails log...')
 sys.stdout.flush()
 
-def pushSolarSystemAnalytics(system_id, location_id):
+def pushSolarSystemAnalytics(system_id, location_id, corporation_ids):
     found_sys = False
     for s in g_cached_systems_stat:
         if s["system"] == int(system_id):
+            found_sys = True
+            break
+    if not found_sys:
+        g_cached_systems_stat.append({"system":int(system_id),"cnt":0,"corporations":[],"alliances":[],"locations":[]})
+    for s in g_cached_systems_stat:
+        if s["system"] == int(system_id):
+            for corporation_id in corporation_ids:
+                alliance_id = None
+                for c in g_cached_alliance_corporations:
+                    if corporation_id == c["id"]:
+                        alliance_id = c["alliance_id"]
+                        break
+                if alliance_id is None:
+                    found_corp = False
+                    for c in s["corporations"]:
+                        if c["id"] == int(corporation_id):
+                            c["cnt"] = c["cnt"] + 1
+                            found_corp = True
+                            break
+                    if not found_corp:
+                        s["corporations"].append({"id":int(corporation_id),"cnt":1})
+                else:
+                    found_alli = False
+                    for c in s["alliances"]:
+                        if c["id"] == int(alliance_id):
+                            c["cnt"] = c["cnt"] + 1
+                            found_alli = True
+                            break
+                    if not found_alli:
+                        s["alliances"].append({"id":int(alliance_id),"cnt":1})
             found_loc = False
             for l in s["locations"]:
                 if l["id"] == int(location_id):
@@ -387,10 +428,7 @@ def pushSolarSystemAnalytics(system_id, location_id):
             if not found_loc:
                 s["locations"].append({"id":int(location_id),"cnt":1})
             s["cnt"] = s["cnt"] + 1
-            found_sys = True
             break
-    if not found_sys:
-        g_cached_systems_stat.append({"system":int(system_id),"cnt":1,"locations":[{"id":int(location_id),"cnt":1}]})
 
 first_time_characters = Set()
 # type_id: 1 - attacker, 2 - victim, 3 - npc
@@ -428,15 +466,21 @@ for k in g_cached_killmails:
     system_id = int(k["system"])
     location_id = int(k["location"])
     npc = k["npc"]
+    corporation_ids = []
     for pilot_id in k["attackers"]:
         pushPilotAnalytics(pilot_id, system_id, location_id, 1)
+        pilot_details = getCharacter(pilot_id)
+        if not pilot_details["corporation_id"] is None:
+            corporation_ids.append(pilot_details["corporation_id"])
     for pilot_id in k["victim"]:
         pushPilotAnalytics(pilot_id, system_id, location_id, 2 if not npc else 3)
     if not npc:
-        pushSolarSystemAnalytics(system_id, location_id)
+        pushSolarSystemAnalytics(system_id, location_id, corporation_ids)
 
 g_cached_systems_stat.sort(key=lambda x: x["cnt"], reverse=True)
 for s in g_cached_systems_stat:
+    s["corporations"].sort(key=lambda x: x["cnt"], reverse=True)
+    s["alliances"].sort(key=lambda x: x["cnt"], reverse=True)
     s["locations"].sort(key=lambda x: x["cnt"], reverse=True)
 g_cached_pilots_stat.sort(key=lambda x: x["cnt"], reverse=True)
 for pilot in g_cached_pilots_stat:
@@ -475,19 +519,68 @@ glf.write('td.attacks { text-align: right; color: green; }\n')
 glf.write('td.victims { text-align: right; color: maroon; }\n')
 glf.write('td.npc { text-align: right; color: #9933cc; }\n')
 glf.write('div p, .div p { margin:0px; color:#888; }\n')
-glf.write('p a, .p a { color: #2a9fd6; text-decoration: none; }\n')
+glf.write('p a, .p a, h3 a, .h3 a { color: #2a9fd6; text-decoration: none; }\n')
 glf.write('</style></head><body>\n')
+
+# Most dangerous locations
+glf.write('<h2>Most PvP-violent locations in region</h2>\n')
+glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
+for s in g_cached_systems_stat:
+    s_cnt = s["cnt"]
+    if 0 == s_cnt: continue
+    logo_html = ""
+    most_danger_alli = None
+    most_danger_corp = None
+    if len(s["alliances"]) > 0:
+        if len(s["corporations"]) > 0:
+            if int(s["alliances"][0]["cnt"]) >= int(s["corporations"][0]["cnt"]):
+                most_danger_alli = int(s["alliances"][0]["id"])
+            else:
+                most_danger_corp = int(s["corporations"][0]["id"])
+        else:
+            most_danger_alli = int(s["alliances"][0]["id"])
+    elif len(s["corporations"]) > 0:
+        most_danger_corp = int(s["corporations"][0]["id"])
+    
+    if not most_danger_alli is None:
+        logo_html = '<div style="float:left"><a href="https://zkillboard.com/system/{system}/alliance/{aid}/"><img src="https://images.evetech.net/alliances/{aid}/logo?size=32"></a></div>'.format(system=s["system"],aid=int(most_danger_alli))
+    elif not most_danger_corp is None:
+        logo_html = '<div style="float:left"><a href="https://zkillboard.com/system/{system}/corporation/{cid}/"><img src="https://images.evetech.net/corporations/{cid}/logo?size=32"></a></div>'.format(system=s["system"],cid=int(most_danger_corp))
+    quotients = arr.array('f', [])
+    for loc in s["locations"]:
+        l_cnt = loc["cnt"]
+        quotient = float(l_cnt) / float(s_cnt) * 100.0
+        if quotient < 13.0:
+            if len(quotients) >= 2: break
+        quotients.append(quotient)
+        if 3 == len(quotients): break
+    if 0 == len(quotients): continue
+    glf.write('<tr><td rowspan={num} valign=top><div>{logo}<p><a href="https://zkillboard.com/system/{system}/">{system}</a></p></div></td>'.format(logo=logo_html,system=getSolarSystemName(s["system"]),num=len(quotients)))
+    first = True
+    l_idx = 0
+    for loc in s["locations"]:
+        if first:
+            first = False
+        else:
+            glf.write('<tr>')
+        q = quotients[l_idx]
+        iq = int(q)
+        _iq = int(100 - iq)
+        l_idx = l_idx + 1
+        glf.write('<td  style="background-image: linear-gradient(to right,#444444 {iq}%,black {iq}%,black {_iq}%)">{location}</td><td>{q:.1f}%</td></tr>\n'.format(location=getLocationName(loc["id"]),q=q,iq=iq,_iq=_iq))
+        if l_idx == len(quotients): break
+glf.write('</table>\n')
+
 # Pilots stat
 glf.write('<h2>Pilots activity</h2>\n')
 for pilot in g_cached_pilots_stat:
     pilot_id = pilot["id"]
-    loadCharacter(pilot_id)
     pilot_details = getCharacter(pilot_id)
     if pilot_details["alliance_id"] is None:
         glf.write('<div><div style="float:left"><img src="https://images.evetech.net/corporations/{cid}/logo?size=64"></div><div>\n'.format(cid=pilot_details["corporation_id"]))
     else:
         glf.write('<div><div style="float:left"><img src="https://images.evetech.net/alliances/{aid}/logo?size=64"></div><div>\n'.format(aid=pilot_details["alliance_id"]))
-    glf.write('<h3>{name}</h3>\n'.format(name=pilot_details["name"]))
+    glf.write('<h3><a href="https://zkillboard.com/character/{id}/">{name}</a></h3>\n'.format(id=pilot_id,name=pilot_details["name"]))
     if pilot_details["corporation_name"] is None:
         glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">Corp. {cid}</a></br>\n'.format(cid=pilot_details["corporation_id"]))
     else:
@@ -522,37 +615,6 @@ for pilot in g_cached_pilots_stat:
     glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td><td class=npc>{n}</td></tr></table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;",n=n_all if n_all>0 else "&nbsp;"))
     
     glf.write(' </div>\n</div>\n')
-# Most dangerous locations
-glf.write('<h2>Most PvP-dangerous locations in region</h2>\n')
-glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
-for s in g_cached_systems_stat:
-    s_cnt = s["cnt"]
-    if 0 == s_cnt: continue
-    quotients = arr.array('f', [])
-    for loc in s["locations"]:
-        l_cnt = loc["cnt"]
-        quotient = float(l_cnt) / float(s_cnt) * 100.0
-        if quotient < 13.0:
-            break
-        else:
-            quotients.append(quotient)
-        if 3 == len(quotients): break
-    if 0 == len(quotients): continue
-    glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(s["system"]),num=len(quotients)))
-    first = True
-    l_idx = 0
-    for loc in s["locations"]:
-        if first:
-            first = False
-        else:
-            glf.write('<tr>')
-        q = quotients[l_idx]
-        iq = int(q)
-        _iq = int(100 - iq)
-        l_idx = l_idx + 1
-        glf.write('<td  style="background-image: linear-gradient(to right,#444444 {iq}%,black {iq}%,black {_iq}%)">{location}</td><td>{q:.1f}%</td></tr>\n'.format(location=getLocationName(loc["id"]),q=q,iq=iq,_iq=_iq))
-        if l_idx == len(quotients): break
-glf.write('</table>\n')
 
 # Don't remove line below !
 glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
