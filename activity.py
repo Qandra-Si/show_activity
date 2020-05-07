@@ -34,6 +34,7 @@ g_cached_alliance_corporations = []
 g_characters = []
 g_sde_uniq_names_1 = []
 g_sde_uniq_names_2 = []
+g_sde_uniq_names_3 = []
 
 
 def getTimestamp(datetime_str):
@@ -196,6 +197,64 @@ def getLocationName(id):
             break
     return id
 
+def getItemName(id):
+    for n in g_sde_uniq_names_3:
+        if int(n[0]) == id:
+            return n[1]
+        elif int(n[0]) > id: # sorted
+            break
+    return id
+
+first_time_characters = Set()
+def pushPilotIntoCache(pilot_id):
+    if not pilot_id in first_time_characters:
+        first_time_characters.add(pilot_id)
+        g_cached_pilots_stat.append({"id":int(pilot_id),"cnt":0,"where":[],"gangs":[],"ships":[]})
+
+# type_id: 1 - attacker, 2 - victim, 3 - npc
+def pushPilotAnalytics(pilot_id, system_id, location_id, type_id):
+    pushPilotIntoCache(pilot_id)
+    pilot = [item for item in g_cached_pilots_stat if item["id"] == int(pilot_id)]
+    pilot[0]["cnt"] = pilot[0]["cnt"] + 1
+    num_attacker = 1 if 1 == type_id else 0
+    num_victim = 1 if 2 == type_id else 0
+    num_npc = 1 if 3 == type_id else 0
+    found_sys = False
+    for s in pilot[0]["where"]:
+        if s["system"] == int(system_id):
+            found_loc = False
+            for l in s["locations"]:
+                if l["id"] == int(location_id):
+                    l["attacker"] = l["attacker"] + num_attacker
+                    l["victim"] = l["victim"] + num_victim
+                    l["npc"] = l["npc"] + num_npc
+                    found_loc = True
+                    break
+            if not found_loc:
+                s["locations"].append({"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc})
+            found_sys = True
+            break
+    if not found_sys:
+        pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc}]})
+
+def pushPilotFleetAnalytics(pilot_id, ship_type, gang_size):
+    pushPilotIntoCache(pilot_id)
+    pilot = [item for item in g_cached_pilots_stat if item["id"] == int(pilot_id)]
+    if not gang_size is None: # None for victim's
+        pilot[0]["gangs"].append(gang_size)
+    found_ship = False
+    for s in pilot[0]["ships"]:
+        if s["id"] == int(ship_type):
+            s["cnt"] = s["cnt"] + 1
+            found_ship = True
+            break
+    if not found_ship:
+        pilot[0]["ships"].append({"id":int(ship_type),"cnt":1})
+
+def pushFleetAnalytics(pilots, gang_size):
+    for p in pilots:
+        pushPilotFleetAnalytics(int(p["id"]), int(p["ship"]), gang_size)
+
 
 
 # ------------------------------------------------------------------------------------------------
@@ -245,6 +304,31 @@ else:
 #if g_debug:
 #    print(json.dumps(g_sde_uniq_names_2, indent=1, sort_keys=False))
 print('Found {num} unique names in invNames.yaml'.format(num=len(g_sde_uniq_names_2)))
+sys.stdout.flush()
+
+sys.stdout.flush()
+iuncnm = '{tmp}/unique_names_cache_3.json'.format(tmp=g_tmp_directory)
+if os.path.isfile(iuncnm):
+    jnr = open(iuncnm,"rt")
+    s = jnr.read()
+    g_sde_uniq_names_3 = (json.loads(s))
+    jnr.close()
+
+else:
+    un_yaml = getYaml(2,'sde/fsd/typeIDs.yaml')
+    g_sde_uniq_names_3 = []
+    for n in un_yaml:
+        if 'name' in un_yaml[n] and 'en' in un_yaml[n]["name"]:
+            g_sde_uniq_names_3.append([n,un_yaml[n]["name"]["en"]])
+    un_yaml = []
+    
+    g_sde_uniq_names_3.sort(key=lambda x: x[0])
+    jnw = open(iuncnm, "wt+")
+    jnw.write(json.dumps(g_sde_uniq_names_3, indent=1, sort_keys=False))
+    jnw.close()
+#if g_debug:
+#    print(json.dumps(g_sde_uniq_names_3, indent=1, sort_keys=False))
+print('Found {num} unique names in typeIDs.yaml'.format(num=len(g_sde_uniq_names_3)))
 sys.stdout.flush()
 # ------------------------------------------------------------------------------------------------
 
@@ -357,6 +441,7 @@ for system_name in g_solar_systems:
                     if not 'attackers' in killmail and not 'victim' in killmail:
                         break # offline mode? and there are no data? (skip)
                     npc = True if zkill["zkb"]["npc"] else False
+                    # getting attackers and victim
                     attackers = []
                     victim = []
                     if 'attackers' in killmail:
@@ -370,6 +455,22 @@ for system_name in g_solar_systems:
                             victim.append(int(v["character_id"]))
                             loadCharacter(int(v["character_id"]))
                     pushSolarSystemKillmail(id, killmail["killmail_time"], attackers, victim, killmail["solar_system_id"], location_id, npc)
+                    # getting pilot' ship types
+                    attackers = []
+                    victim = []
+                    if 'attackers' in killmail:
+                        for a in killmail["attackers"]:
+                            if 'character_id' in a and 'ship_type_id' in a:
+                                attackers.append({"id":int(a["character_id"]),"ship":int(a["ship_type_id"])})
+                    if 'victim' in killmail:
+                        v = killmail["victim"]
+                        if 'character_id' in v and 'ship_type_id' in v:
+                            victim.append({"id":int(v["character_id"]),"ship":int(v["ship_type_id"])})
+                    if len(attackers) > 0:
+                        pushFleetAnalytics(attackers, len(attackers))
+                    if len(victim) > 0:
+                        pushFleetAnalytics(victim, None)
+                    # ---
                 if len(zkillmails)<200:
                     break
                 else:
@@ -430,50 +531,21 @@ def pushSolarSystemAnalytics(system_id, location_id, corporation_ids):
             s["cnt"] = s["cnt"] + 1
             break
 
-first_time_characters = Set()
-# type_id: 1 - attacker, 2 - victim, 3 - npc
-def pushPilotAnalytics(pilot_id, system_id, location_id, type_id):
-    if not pilot_id in first_time_characters:
-        first_time_characters.add(pilot_id)
-        g_cached_pilots_stat.append({"id":int(pilot_id),"cnt":0,"where":[]})
-    pilot = [item for item in g_cached_pilots_stat if item["id"] == int(pilot_id)]
-    pilot[0]["cnt"] = pilot[0]["cnt"] + 1
-    num_attacker = 1 if 1 == type_id else 0
-    num_victim = 1 if 2 == type_id else 0
-    num_npc = 1 if 3 == type_id else 0
-    found_sys = False
-    for s in pilot[0]["where"]:
-        if s["system"] == int(system_id):
-            found_loc = False
-            for l in s["locations"]:
-                if l["id"] == int(location_id):
-                    l["attacker"] = l["attacker"] + num_attacker
-                    l["victim"] = l["victim"] + num_victim
-                    l["npc"] = l["npc"] + num_npc
-                    found_loc = True
-                    break
-            if not found_loc:
-                s["locations"].append({"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc})
-            found_sys = True
-            break
-    if not found_sys:
-        pilot[0]["where"].append({"system":int(system_id),"locations":[{"id":int(location_id),"attacker":num_attacker,"victim":num_victim,"npc":num_npc}]})
-
-g_cached_killmails.sort(key=lambda x: x["time"])
+# g_cached_killmails.sort(key=lambda x: x["time"])
 for k in g_cached_killmails:
-    unix_timestamp = float(k["time"])
-    id = int(k["id"])
+    # unix_timestamp = float(k["time"])
+    # id = int(k["id"])
     system_id = int(k["system"])
     location_id = int(k["location"])
     npc = k["npc"]
     corporation_ids = []
     for pilot_id in k["attackers"]:
-        pushPilotAnalytics(pilot_id, system_id, location_id, 1)
-        pilot_details = getCharacter(pilot_id)
+        pushPilotAnalytics(int(pilot_id), system_id, location_id, 1)
+        pilot_details = getCharacter(int(pilot_id))
         if not pilot_details["corporation_id"] is None:
             corporation_ids.append(pilot_details["corporation_id"])
     for pilot_id in k["victim"]:
-        pushPilotAnalytics(pilot_id, system_id, location_id, 2 if not npc else 3)
+        pushPilotAnalytics(int(pilot_id), system_id, location_id, 2 if not npc else 3)
     if not npc:
         pushSolarSystemAnalytics(system_id, location_id, corporation_ids)
 
@@ -486,6 +558,23 @@ g_cached_pilots_stat.sort(key=lambda x: x["cnt"], reverse=True)
 for pilot in g_cached_pilots_stat:
     for where in pilot["where"]:
         where["locations"].sort(key=lambda x: x["attacker"]+x["victim"]+x["npc"], reverse=True)
+    pilot["ships"].sort(key=lambda x: x["cnt"], reverse=True)
+    # calc gang size and solo times
+    gang_size = 0
+    solo_percent = 0
+    if len(pilot["gangs"]) > 0:
+        for g in pilot["gangs"]:
+            if g == 1:
+                solo_percent = solo_percent + 1
+            else:
+                gang_size = gang_size + g
+        if 0 == gang_size:
+            pilot["solo"] = 100.0
+        else:
+            gang_size = int(float(gang_size) / float(len(pilot["gangs"])-solo_percent) + 0.5)
+            pilot["gang_size"] = int(gang_size)
+            pilot["solo"] = float(solo_percent) / float(len(pilot["gangs"])) * 100.0
+    del pilot["gangs"]
 
 if g_debug:
     gckmw = open('{tmp}/killmails.json'.format(tmp=g_tmp_directory), "wt+")
@@ -576,21 +665,46 @@ glf.write('<h2>Pilots activity</h2>\n')
 for pilot in g_cached_pilots_stat:
     pilot_id = pilot["id"]
     pilot_details = getCharacter(pilot_id)
+    lines = 0
+    # logo
     if pilot_details["alliance_id"] is None:
         glf.write('<div><div style="float:left"><img src="https://images.evetech.net/corporations/{cid}/logo?size=64"></div><div>\n'.format(cid=pilot_details["corporation_id"]))
     else:
         glf.write('<div><div style="float:left"><img src="https://images.evetech.net/alliances/{aid}/logo?size=64"></div><div>\n'.format(aid=pilot_details["alliance_id"]))
+    # pilot
     glf.write('<h3><a href="https://zkillboard.com/character/{id}/">{name}</a></h3>\n'.format(id=pilot_id,name=pilot_details["name"]))
+    # corporation
     if pilot_details["corporation_name"] is None:
-        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">Corp. {cid}</a></br>\n'.format(cid=pilot_details["corporation_id"]))
+        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">Corp. {cid}</a>\n'.format(cid=pilot_details["corporation_id"]))
     else:
-        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">{cname}</a> [{cticker}]</br>\n'.format(cid=pilot_details["corporation_id"],cname=pilot_details["corporation_name"],cticker=pilot_details["corporation_ticker"]))
-    if pilot_details["alliance_id"] is None:
-        glf.write('</br>')
-    elif pilot_details["alliance_name"] is None:
-        glf.write('Alliance: <a href="https://zkillboard.com/alliance/{aid}/">Alli. {aid}</a>'.format(aid=pilot_details["alliance_id"]))
-    else:
-        glf.write('Alliance: <a href="https://zkillboard.com/alliance/{aid}/">{aname}</a> &lt;{aticker}&gt;'.format(aid=pilot_details["alliance_id"],aname=pilot_details["alliance_name"],aticker=pilot_details["alliance_ticker"]))
+        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">{cname}</a> [{cticker}]\n'.format(cid=pilot_details["corporation_id"],cname=pilot_details["corporation_name"],cticker=pilot_details["corporation_ticker"]))
+    lines = lines + 1
+    # alliance
+    if not pilot_details["alliance_id"] is None:
+        if pilot_details["alliance_name"] is None:
+            glf.write('</br>Alliance: <a href="https://zkillboard.com/alliance/{aid}/">Alli. {aid}</a>'.format(aid=pilot_details["alliance_id"]))
+        else:
+            glf.write('</br>Alliance: <a href="https://zkillboard.com/alliance/{aid}/">{aname}</a> &lt;{aticker}&gt;'.format(aid=pilot_details["alliance_id"],aname=pilot_details["alliance_name"],aticker=pilot_details["alliance_ticker"]))
+        lines = lines + 1
+    # solo | gang size
+    if 'solo' in pilot:
+        glf.write('</br>Solo: <span style="color:yellow">{solo:.1f}%</span>'.format(solo=pilot["solo"]))
+        if 'gang_size' in pilot:
+            glf.write(' | Gang size: <b>{sz}</b>'.format(sz=int(pilot["gang_size"])))
+        lines  = lines + 1
+    # ships
+    if len(pilot["ships"]) > 0:
+        ships_cnt = 0
+        fights_cnt = 0
+        for s in pilot["ships"]:
+            fights_cnt = fights_cnt + s["cnt"]
+        glf.write('</br>Ships:')
+        for s in pilot["ships"]:
+            if ships_cnt > 0: glf.write(' |')
+            glf.write(' <span style="color:#bbbbbb">{nm}</span> ({often:.1f}%)'.format(nm=getItemName(s["id"]),often=float(s["cnt"])/float(fights_cnt)*100.0))
+            ships_cnt = ships_cnt + 1
+            if 10 == ships_cnt: break
+    if lines < 2: glf.write('</br>')
     glf.write('</p>\n')
     
     glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Attacks</th><th>Victims</th><th>NPC</th></tr>\n')
@@ -617,7 +731,7 @@ for pilot in g_cached_pilots_stat:
     glf.write(' </div>\n</div>\n')
 
 # Don't remove line below !
-glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
+glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %d %b %Y %H:%M:%S %z)')))
 # Don't remove line above !
 glf.write('</body></html>\n')
 glf.close()
