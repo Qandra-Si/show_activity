@@ -13,6 +13,7 @@ import yaml # pip install pyyaml
 from sets import Set
 import sys
 import tzlocal  # pip install tzlocal
+import array as arr
 
 # Global settings
 execfile("{cwd}/activity_settings.py".format(cwd=os.path.dirname(os.path.abspath(__file__))))
@@ -140,20 +141,38 @@ def getYaml(type,suburl):
     f.close()
     return yaml_data
 
-def pushCharacter(id,name):
-    g_characters.append({"id":int(id),"name":name})
-
-def getCharacterName(id):
+def loadCharacter(id):
     for c in g_characters:
-        if int(id)==int(c["id"]):
-            return c["name"]
+        if int(id)!=int(c["id"]): continue
+        return
     # curl -X GET "https://esi.evetech.net/latest/characters/631632288/?datasource=tranquility" -H "accept: application/json"
     who = getJson(0,False,'characters/{who}'.format(who=id))
-    if 'name' in who: # offline mode? and there are no data? (skip)
-        pushCharacter(id,who["name"])
-        return who["name"]
-    else:
-        return id
+    if not 'name' in who: return # offline mode? and there are no data? (skip)
+    # curl -X GET "https://esi.evetech.net/latest/alliances/99009962/?datasource=tranquility" -H  "accept: application/json"
+    alli = None
+    if 'alliance_id' in who:
+        alli = getJson(0,False,'alliances/{alliance_id}'.format(alliance_id=who["alliance_id"]))
+        if not 'name' in alli: alli = None # offline mode? and there are no data? (skip)
+    # curl -X GET "https://esi.evetech.net/latest/corporations/98550411/?datasource=tranquility" -H  "accept: application/json"
+    corp = getJson(0,False,'corporations/{corporation_id}'.format(corporation_id=who["corporation_id"]))
+    if not 'name' in corp: corp = None # offline mode? and there are no data? (skip)
+    corporation_id = int(who["corporation_id"])
+    corporation_name = corp["name"] if not corp is None else None
+    corporation_ticker = corp["ticker"] if not corp is None else None
+    alliance_id = int(who["alliance_id"]) if 'alliance_id' in who else None
+    alliance_name = alli["name"] if not alli is None else None
+    alliance_ticker = alli["ticker"] if not alli is None else None
+    g_characters.append({
+        "id":int(id),"name":who["name"],
+        "corporation_id":int(corporation_id),"corporation_name":corporation_name,"corporation_ticker":corporation_ticker,
+        "alliance_id":alliance_id,"alliance_name":alliance_name,"alliance_ticker":alliance_ticker
+    })
+
+def getCharacter(id):
+    for c in g_characters:
+        if int(id)!=int(c["id"]): continue
+        return c
+    return {"id":id,"name":id}
 
 def getLocationName(id):
     for n in g_sde_uniq_names_1:
@@ -448,30 +467,39 @@ sys.stdout.flush()
 glf = open('{tmp}/report.html'.format(tmp=g_tmp_directory), "wt+")
 glf.write('<html><head><style>\n')
 glf.write('body { margin: 0; padding: 0; background-color: #101010; overflow-y: hidden; }\n')
+glf.write('h3 { margin-bottom: 0px }\n')
 glf.write('body, html { min-height: 100vh; overflow-x: hidden; box-sizing: border-box; line-height: 1.5; color: #fff; font-family: Shentox,Rogan,sans-serif; }\n')
 glf.write('table { border-collapse: collapse; border: none; }\n')
 glf.write('th,td { border: 1px solid gray; text-align: left; vertical-align: top; }\n')
 glf.write('td.attacks { text-align: right; color: green; }\n')
 glf.write('td.victims { text-align: right; color: maroon; }\n')
 glf.write('td.npc { text-align: right; color: #9933cc; }\n')
+glf.write('div p, .div p { margin:0px; color:#888; }\n')
+glf.write('p a, .p a { color: #2a9fd6; text-decoration: none; }\n')
 glf.write('</style></head><body>\n')
-# Most dangerous locations
-glf.write('<h2>Most PvP-dangerous locations in region</h2>\n')
-glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
-for s in g_cached_systems_stat:
-    glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(s["system"]),num=len(s["locations"])))
-    first = True
-    for loc in s["locations"]:
-        if first:
-            first = False
-        else:
-            glf.write('<tr>')
-        glf.write('<td>{location}</td><td>{kills}</td></tr>\n'.format(location=getLocationName(loc["id"]),kills=loc["cnt"]))
-glf.write('<table>\n')
 # Pilots stat
 glf.write('<h2>Pilots activity</h2>\n')
 for pilot in g_cached_pilots_stat:
-    glf.write('<h3>{name}</h3>\n'.format(name=getCharacterName(pilot["id"])))
+    pilot_id = pilot["id"]
+    loadCharacter(pilot_id)
+    pilot_details = getCharacter(pilot_id)
+    if pilot_details["alliance_id"] is None:
+        glf.write('<div><div style="float:left"><img src="https://images.evetech.net/corporations/{cid}/logo?size=64"></div><div>\n'.format(cid=pilot_details["corporation_id"]))
+    else:
+        glf.write('<div><div style="float:left"><img src="https://images.evetech.net/alliances/{aid}/logo?size=64"></div><div>\n'.format(aid=pilot_details["alliance_id"]))
+    glf.write('<h3>{name}</h3>\n'.format(name=pilot_details["name"]))
+    if pilot_details["corporation_name"] is None:
+        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">Corp. {cid}</a></br>\n'.format(cid=pilot_details["corporation_id"]))
+    else:
+        glf.write('<p>Corporation: <a href="https://zkillboard.com/corporation/{cid}/">{cname}</a> [{cticker}]</br>\n'.format(cid=pilot_details["corporation_id"],cname=pilot_details["corporation_name"],cticker=pilot_details["corporation_ticker"]))
+    if pilot_details["alliance_id"] is None:
+        glf.write('</br>')
+    elif pilot_details["alliance_name"] is None:
+        glf.write('Alliance: <a href="https://zkillboard.com/alliance/{aid}/">Alli. {aid}</a>'.format(aid=pilot_details["alliance_id"]))
+    else:
+        glf.write('Alliance: <a href="https://zkillboard.com/alliance/{aid}/">{aname}</a> &lt;{aticker}&gt;'.format(aid=pilot_details["alliance_id"],aname=pilot_details["alliance_name"],aticker=pilot_details["alliance_ticker"]))
+    glf.write('</p>\n')
+    
     glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Attacks</th><th>Victims</th><th>NPC</th></tr>\n')
     a_all = 0
     v_all = 0
@@ -491,7 +519,41 @@ for pilot in g_cached_pilots_stat:
             v_all = v_all + v
             n_all = n_all + n
             glf.write('<td>{location}</td><td class=attacks>{attacker}</td><td class=victims>{victim}</td><td class=npc>{npc}</td></tr>\n'.format(location=getLocationName(loc["id"]),attacker=a if a>0 else "&nbsp;",victim=v if v>0 else "&nbsp;",npc=n if n>0 else "&nbsp;"))
-    glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td><td class=npc>{n}</td></tr><table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;",n=n_all if n_all>0 else "&nbsp;"))
+    glf.write('<tr><td colspan=2>&nbsp;</td><td class=attacks>{a}</td><td class=victims>{v}</td><td class=npc>{n}</td></tr></table>\n'.format(a=a_all if a_all>0 else "&nbsp;",v=v_all if v_all>0 else "&nbsp;",n=n_all if n_all>0 else "&nbsp;"))
+    
+    glf.write(' </div>\n</div>\n')
+# Most dangerous locations
+glf.write('<h2>Most PvP-dangerous locations in region</h2>\n')
+glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
+for s in g_cached_systems_stat:
+    s_cnt = s["cnt"]
+    if 0 == s_cnt: continue
+    quotients = arr.array('f', [])
+    for loc in s["locations"]:
+        l_cnt = loc["cnt"]
+        quotient = float(l_cnt) / float(s_cnt) * 100.0
+        if quotient < 13.0:
+            break
+        else:
+            quotients.append(quotient)
+        if 3 == len(quotients): break
+    if 0 == len(quotients): continue
+    glf.write('<tr><td rowspan={num}>{system}</td>'.format(system=getSolarSystemName(s["system"]),num=len(quotients)))
+    first = True
+    l_idx = 0
+    for loc in s["locations"]:
+        if first:
+            first = False
+        else:
+            glf.write('<tr>')
+        q = quotients[l_idx]
+        iq = int(q)
+        _iq = int(100 - iq)
+        l_idx = l_idx + 1
+        glf.write('<td  style="background-image: linear-gradient(to right,#444444 {iq}%,black {iq}%,black {_iq}%)">{location}</td><td>{q:.1f}%</td></tr>\n'.format(location=getLocationName(loc["id"]),q=q,iq=iq,_iq=_iq))
+        if l_idx == len(quotients): break
+glf.write('</table>\n')
+
 # Don't remove line below !
 glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %m %b %Y %H:%M:%S %z)')))
 # Don't remove line above !
