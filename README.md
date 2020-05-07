@@ -3,4 +3,4 @@
 
 Скрипт генерирует html-страницу с данными о наиболее опасных системах в регионе, со сведениями о пилотах.
 
-<img src="https://raw.githubusercontent.com/Qandra-Si/show_activity/master/images/example.png" height="50%" width="50%">
+<img src="https://raw.githubusercontent.com/Qandra-Si/show_activity/master/images/example.png" height="66%" width="66%">
