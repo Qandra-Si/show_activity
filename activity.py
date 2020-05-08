@@ -598,21 +598,50 @@ print('Building report...')
 sys.stdout.flush()
 
 glf = open('{tmp}/report.html'.format(tmp=g_tmp_directory), "wt+")
-glf.write('<html><head><style>\n')
-glf.write('body { margin: 0; padding: 0; background-color: #101010; overflow-y: hidden; }\n')
-glf.write('h3 { margin-bottom: 0px }\n')
-glf.write('body, html { min-height: 100vh; overflow-x: hidden; box-sizing: border-box; line-height: 1.5; color: #fff; font-family: Shentox,Rogan,sans-serif; }\n')
-glf.write('table { border-collapse: collapse; border: none; }\n')
-glf.write('th,td { border: 1px solid gray; text-align: left; vertical-align: top; }\n')
-glf.write('td.attacks { text-align: right; color: green; }\n')
-glf.write('td.victims { text-align: right; color: maroon; }\n')
-glf.write('td.npc { text-align: right; color: #9933cc; }\n')
-glf.write('div p, .div p { margin:0px; color:#888; }\n')
-glf.write('p a, .p a, h3 a, .h3 a { color: #2a9fd6; text-decoration: none; }\n')
-glf.write('</style></head><body>\n')
+glf.write("""<html><head><style>
+body { margin: 0; padding: 0; background-color: #101010; overflow-y: hidden; }
+h2 { margin-bottom: 3px }
+h3 { margin-bottom: 0px }
+body, html { min-height: 100vh; overflow-x: hidden; box-sizing: border-box; line-height: 1.5; color: #fff; font-family: Shentox,Rogan,sans-serif; }
+table { border-collapse: collapse; border: none; }
+th,td { border: 1px solid gray; text-align: left; vertical-align: top; }
+td.attacks { text-align: right; color: green; }
+td.victims { text-align: right; color: maroon; }
+td.npc { text-align: right; color: #9933cc; }
+div p, .div p { margin:0px; color:#888; }
+p a, .p a, h3 a, .h3 a { color: #2a9fd6; text-decoration: none; }
+textarea { width: 600px; border: 1px solid #666; color: #bbb; background-color: #000; }
+input.btn { cursor: pointer; color: #fff; background-color: #555; display: inline-block; margin-top: 3px; white-space: nowrap; vertical-align: middle; user-select: none; border: 1px solid transparent; padding: .2rem .6rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out; }
+input.btn:hover { background-color: #777; border-color: #888; }
+textarea, input.btn, input.btn:active, input.btn:focus { outline: none; }
+</style>
+<script type="text/javascript">
+function showAll() {
+ var divs = document.getElementsByTagName("div");
+ for(var i = 0, cnt = divs.length; i < cnt; i++)
+  if (divs[i].id)
+   divs[i].style.display = 'block';
+ document.getElementById('Paste anything').scrollIntoView();
+}
+function filterElements() {
+ var filter = document.getElementById('Paste anything').value.split('\\n');
+ var divs = document.getElementsByTagName("div");
+ for(var i = 0, cnt1 = divs.length; i < cnt1; i++)
+  if (divs[i].id){
+   var found = 0;
+   for (var j = 0, cnt2 = filter.length; j < cnt2; j++)
+    if (filter[j] === divs[i].id){
+     found = 1;
+     break;
+    }
+    if (!found) divs[i].style.display = 'none';
+ }
+}
+</script></head><body>
+""")
 
 # Most dangerous locations
-glf.write('<h2>Most PvP-violent locations in region</h2>\n')
+glf.write('<div id="hide!me1"><h2>Most PvP-violent locations in region</h2>\n')
 glf.write('<table><tr><th>Solar System</th><th>Location</th><th>Kills</th></tr>\n')
 for s in g_cached_systems_stat:
     s_cnt = s["cnt"]
@@ -658,19 +687,29 @@ for s in g_cached_systems_stat:
         l_idx = l_idx + 1
         glf.write('<td  style="background-image: linear-gradient(to right,#444444 {iq}%,black {iq}%,black {_iq}%)">{location}</td><td>{q:.1f}%</td></tr>\n'.format(location=getLocationName(loc["id"]),q=q,iq=iq,_iq=_iq))
         if l_idx == len(quotients): break
-glf.write('</table>\n')
+glf.write('</table></div>\n')
 
 # Pilots stat
-glf.write('<h2>Pilots activity</h2>\n')
+glf.write("""<div id="hide!me2"><h2>Pilots activity</h2></div>
+<textarea id="Paste anything" rows="10" title="Paste pilot names you managed to copy in Eve...
+
+That means:
+ CTRL+A to select all;
+ CTRL+C to copy; and
+ CTRL+V to paste." placeholder="Paste pilot names you managed to copy in Eve..."></textarea></br>
+<input type="button" class="btn" value="Filter" onclick="filterElements()">
+<input type="button" class="btn" value="Reset" onclick="showAll()">
+""")
 for pilot in g_cached_pilots_stat:
     pilot_id = pilot["id"]
     pilot_details = getCharacter(pilot_id)
     lines = 0
+    glf.write('<div id="{name}">'.format(name=pilot_details["name"]))
     # logo
     if pilot_details["alliance_id"] is None:
-        glf.write('<div><div style="float:left"><img src="https://images.evetech.net/corporations/{cid}/logo?size=64"></div><div>\n'.format(cid=pilot_details["corporation_id"]))
+        glf.write('<div style="float:left"><img src="https://images.evetech.net/corporations/{cid}/logo?size=64"></div><div>\n'.format(cid=pilot_details["corporation_id"]))
     else:
-        glf.write('<div><div style="float:left"><img src="https://images.evetech.net/alliances/{aid}/logo?size=64"></div><div>\n'.format(aid=pilot_details["alliance_id"]))
+        glf.write('<div style="float:left"><img src="https://images.evetech.net/alliances/{aid}/logo?size=64"></div><div>\n'.format(aid=pilot_details["alliance_id"]))
     # pilot
     glf.write('<h3><a href="https://zkillboard.com/character/{id}/">{name}</a></h3>\n'.format(id=pilot_id,name=pilot_details["name"]))
     # corporation
@@ -733,6 +772,13 @@ for pilot in g_cached_pilots_stat:
 # Don't remove line below !
 glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %d %b %Y %H:%M:%S %z)')))
 # Don't remove line above !
-glf.write('</body></html>\n')
+glf.write("""
+<script type="text/javascript">
+document.onkeydown = function(evt) {
+    evt = evt || window.event;
+    if (evt.keyCode == 27) showAll();
+};
+</script></body></html>
+""")
 glf.close()
 # ------------------------------------------------------------------------------------------------
