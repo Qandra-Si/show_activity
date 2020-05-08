@@ -610,6 +610,8 @@ td.victims { text-align: right; color: maroon; }
 td.npc { text-align: right; color: #9933cc; }
 div p, .div p { margin:0px; color:#888; }
 p a, .p a, h3 a, .h3 a { color: #2a9fd6; text-decoration: none; }
+small { color:gray; }
+a.inert { color:#999; }
 textarea { width: 600px; border: 1px solid #666; color: #bbb; background-color: #000; }
 input.btn { cursor: pointer; color: #fff; background-color: #555; display: inline-block; margin-top: 3px; white-space: nowrap; vertical-align: middle; user-select: none; border: 1px solid transparent; padding: .2rem .6rem; font-size: 1rem; line-height: 1.5; border-radius: .25rem; transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out; }
 input.btn:hover { background-color: #777; border-color: #888; }
@@ -691,6 +693,8 @@ glf.write('</table></div>\n')
 
 # Pilots stat
 glf.write("""<div id="hide!me2"><h2>Pilots activity</h2></div>
+<p style="margin:0;"><small>Right click on your chat transcript and select Copy All or press CTRL+A and then CTRL+C in the</br>
+members panel and paste it here to get characters affiliations and PvP stats. Press ESC to reset.</small></p>
 <textarea id="Paste anything" rows="10" title="Paste pilot names you managed to copy in Eve...
 
 That means:
@@ -700,7 +704,10 @@ That means:
 <input type="button" class="btn" value="Filter" onclick="filterElements()">
 <input type="button" class="btn" value="Reset" onclick="showAll()">
 """)
+#debug:limit = 0
 for pilot in g_cached_pilots_stat:
+    #debug:limit = limit + 1
+    #debug:if 10 == limit: break
     pilot_id = pilot["id"]
     pilot_details = getCharacter(pilot_id)
     lines = 0
@@ -737,12 +744,13 @@ for pilot in g_cached_pilots_stat:
         fights_cnt = 0
         for s in pilot["ships"]:
             fights_cnt = fights_cnt + s["cnt"]
-        glf.write('</br>Ships:')
+        glf.write('</br>Ships: <small>')
         for s in pilot["ships"]:
             if ships_cnt > 0: glf.write(' |')
-            glf.write(' <span style="color:#bbbbbb">{nm}</span> ({often:.1f}%)'.format(nm=getItemName(s["id"]),often=float(s["cnt"])/float(fights_cnt)*100.0))
+            glf.write(' <span style="color:#bbb">{nm}</span> ({often:.1f}%)'.format(nm=getItemName(s["id"]),often=float(s["cnt"])/float(fights_cnt)*100.0))
             ships_cnt = ships_cnt + 1
             if 10 == ships_cnt: break
+        glf.write('</small>')
     if lines < 2: glf.write('</br>')
     glf.write('</p>\n')
     
@@ -770,7 +778,12 @@ for pilot in g_cached_pilots_stat:
     glf.write(' </div>\n</div>\n')
 
 # Don't remove line below !
-glf.write('<p><small style="color:gray">Generated {dt} with help of <a href="https://github.com/Qandra-Si/show_activity" style="color:gray">https://github.com/Qandra-Si/show_activity</a></small></p>'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%Y-%m-%d %H:%M:%S %z (%a, %d %b %Y %H:%M:%S %z)')))
+glf.write('<p><small><small>Generated {dt}</small></br>\n'.format(dt=datetime.fromtimestamp(time.time(), g_local_timezone).strftime('%a, %d %b %Y %H:%M:%S %z')))
+glf.write("""</br>
+&copy; 2020 Kekuit Void &middot; <a class="inert" href="https://github.com/Qandra-Si/show_activity">GitHub</a> &middot; Data provided by <a class="inert" href="https://esi.evetech.net/">ESI</a> and <a class="inert" href="https://zkillboard.com/">zKillboard</a> &middot; Tips go to <a class="inert" href="https://zkillboard.com/character/2116129465/">Qandra Si</a></br>
+</br>
+<small>EVE Online and the EVE logo are the registered trademarks of CCP hf. All rights are reserved worldwide. All other trademarks are the property of their respective owners. EVE Online, the EVE logo, EVE and all associated logos and designs are the intellectual property of CCP hf. All artwork, screenshots, characters, vehicles, storylines, world facts or other recognizable features of the intellectual property relating to these trademarks are likewise the intellectual property of CCP hf.</small>
+</small></p>""")
 # Don't remove line above !
 glf.write("""
 <script type="text/javascript">
