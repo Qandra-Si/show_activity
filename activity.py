@@ -637,6 +637,7 @@ function filterElements() {
      break;
     }
     if (!found) divs[i].style.display = 'none';
+    else divs[i].style.display = 'block';
  }
 }
 </script></head><body>
