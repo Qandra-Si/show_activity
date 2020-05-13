@@ -627,12 +627,13 @@ function showAll() {
 }
 function filterElements() {
  var filter = document.getElementById('Paste anything').value.split('\\n');
+ for (var i = 0, cnt = filter.length; i < cnt; i++) { filter[i] = filter[i].trim().toLowerCase(); }
  var divs = document.getElementsByTagName("div");
  for(var i = 0, cnt1 = divs.length; i < cnt1; i++)
   if (divs[i].id){
    var found = 0;
    for (var j = 0, cnt2 = filter.length; j < cnt2; j++)
-    if (filter[j] === divs[i].id){
+    if (filter[j] === divs[i].id.toLowerCase()){
      found = 1;
      break;
     }
