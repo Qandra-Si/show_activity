@@ -1,7 +1,7 @@
 # show_activity
 Сбор информации о регионе eveonline (о системе, о констелляции, о домене) при подготовке к переезду из региона в регион, для проверки региона на предмет кто в нём живёт, охотится, крабит.
 
-Пример собранной информации по констелляциям `Fabai`, `Leseasesh`, `Maal`: [aridia.html](https://qandra-si.github.io/show_activity/docs/aridia.html). 
+Пример собранной информации по констелляциям `Fabai`, `Leseasesh`, `Maal`: [aridia.html](https://qandra-si.github.io/show_activity/docs/index.html). 
 
 Скрипт генерирует html-страницу с данными о наиболее опасных системах в регионе, со сведениями о пилотах.
 
